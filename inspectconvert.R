@@ -17,10 +17,10 @@
 
 .usage <- function() {
   cat(
-"seurat_inspect_convert_cli.R
+"inspectconvert.R
 
 Usage:
-  Rscript seurat_inspect_convert_cli.R --input <file.rds|file.RData|file.rda> [options]
+  Rscript inspectconvert.R --input <file.rds|file.RData|file.rda> [options]
 
 Required:
   --input            Path to .rds OR .RData/.rda that contains a Seurat object.
@@ -42,9 +42,9 @@ Python-friendly export toggles:
   --keep-h5seurat        TRUE/FALSE (default: FALSE)  # keep intermediate .h5Seurat
 
 Examples:
-  Rscript inspectconvert_cli.R --input obj.rds --out obj.h5ad --assay RNA --overwrite TRUE
-  Rscript inspectconvert_cli.R --input ws.RData --object seu --out seu.h5ad
-  Rscript inspectconvert_cli.R --input obj.rds --inspect-only TRUE
+  Rscript inspectconvert.R --input obj.rds --out obj.h5ad --assay RNA --overwrite TRUE
+  Rscript inspectconvert.R --input ws.RData --object seu --out seu.h5ad
+  Rscript inspectconvert.R --input obj.rds --inspect-only TRUE
 \n"
   )
 }
@@ -116,7 +116,7 @@ Examples:
         val <- sub("^--[^=]+=", "", a)
       } else {
         key <- sub("^--", "", a)
-        if (i == length(args) || grepl("^--", args[[i+1]])) {
+        if (i == length(args) || grepl("^-", args[[i+1]])) {
           val <- "TRUE"
         } else {
           val <- args[[i+1]]
@@ -125,15 +125,11 @@ Examples:
       }
 
       # normalize keys to our option names
+      key_norm <- gsub("-", "_", tolower(key))
       key2 <- switch(
-        key,
-        "prefer-data-as-x" = "prefer_data_as_X",
-        "add-ident-to-obs" = "add_ident_to_obs",
-        "join-layers" = "join_layers",
-        "inspect-only" = "inspect_only",
-        "drop-bad-metadata" = "drop_bad_metadata",
-        "keep-h5seurat" = "keep_h5seurat",
-        key
+        key_norm,
+        "prefer_data_as_x" = "prefer_data_as_X",
+        key_norm
       )
 
       if (!key2 %in% names(opts) && key2 != "help") {
@@ -432,6 +428,7 @@ inspect_seurat_object <- function(seu, assay = NULL, quiet = FALSE) {
 
 .sanitize_df_for_hdf5 <- function(df,
                                   name = "data.frame",
+                                  coerce_factors = TRUE,
                                   drop_unsupported = TRUE,
                                   quiet = FALSE) {
   if (is.null(df) || !is.data.frame(df)) return(df)
@@ -443,7 +440,7 @@ inspect_seurat_object <- function(seu, assay = NULL, quiet = FALSE) {
     x <- out[[col]]
 
     # Factor -> character (best for Python/Scanpy categories)
-    if (is.factor(x)) {
+    if (is.factor(x) && coerce_factors) {
       out[[col]] <- as.character(x)
       next
     }
@@ -565,14 +562,25 @@ seurat_to_h5ad <- function(seu,
   }
 
   # Sanitize obs/var metadata for h5ad friendliness
-  if (coerce_factors) {
-    exp@meta.data <- .sanitize_df_for_hdf5(exp@meta.data, name = "meta.data", drop_unsupported = drop_bad_metadata, quiet = quiet)
+  if (coerce_factors || drop_bad_metadata) {
+    exp@meta.data <- .sanitize_df_for_hdf5(
+      exp@meta.data,
+      name = "meta.data",
+      coerce_factors = coerce_factors,
+      drop_unsupported = drop_bad_metadata,
+      quiet = quiet
+    )
 
     for (a in SeuratObject::Assays(exp)) {
       md <- .get_feature_metadata_df(exp[[a]])
       if (!is.null(md) && is.data.frame(md)) {
-        md2 <- .sanitize_df_for_hdf5(md, name = paste0("feature-metadata(", a, ")"),
-                                     drop_unsupported = drop_bad_metadata, quiet = quiet)
+        md2 <- .sanitize_df_for_hdf5(
+          md,
+          name = paste0("feature-metadata(", a, ")"),
+          coerce_factors = coerce_factors,
+          drop_unsupported = drop_bad_metadata,
+          quiet = quiet
+        )
         exp[[a]] <- .set_feature_metadata_df(exp[[a]], md2)
       }
     }
